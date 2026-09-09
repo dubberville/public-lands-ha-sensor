@@ -3,6 +3,11 @@
 # Public Lands
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-compatible-blue)
 
+> **This is a fork** of [anthonysecco/public-lands-ha-sensor](https://github.com/anthonysecco/public-lands-ha-sensor)
+> by Anthony Secco, who wrote the original integration and everything it already did well.
+> This fork adds a **nearby open public land** lookup: when you are *not* on public land, it tells
+> you what is close, how far, in which direction, and gives you a one-tap navigation link.
+
 This is a HACS Custom Component that queries ARCGIS [US Government Protected Area Data](https://services.arcgis.com/v01gqwM5QqNysAAi/ArcGIS/rest/services/Protection_Mechanism_Category_PADUS/FeatureServer/0) with your current GPS coordinates set in Home Assistant and will post back a response with details.
 
 This sensor should provide information on almost any protected land in the United States including federal, state, county, and regional lands.  This can be useful when finding dispersed camping to quickly understand what land and jurisdiction you are within.
@@ -21,7 +26,7 @@ With that out of the way, let's get started...
 
 ## Installation
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=anthonysecco&repository=public-lands-ha-sensor&category=integration)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=dubberville&repository=public-lands-ha-sensor&category=integration)
 
 > This integration is not yet available in the HACS default store.  Meanwhile, it will be added as a custom repository.
 
@@ -33,7 +38,7 @@ With that out of the way, let's get started...
 
 ### Manual Installation
 
-1. Download the source code of the [latest release](https://github.com/anthonysecco/public-lands-ha-sensor/releases).
+1. Download the source code of the [latest release](https://github.com/dubberville/public-lands-ha-sensor/releases).
 2. Unzip the source code download.
 3. Copy **public_lands** from the **custom_components** directory you just downloaded to your Home Assistant **custom_components** directory:
    ```
@@ -89,6 +94,8 @@ The following sensors will be created upon installation.
 | Public Access | Open to the public, Restricted (permit needed), Closed Access (military base). |
 | API Status | 'On' if last refresh was successful.  'Off' if last refresh failed. |
 | Last Successful Refresh | Timestamp of last referesh |
+| Nearest Open Land | Closest open public land when you are *not* on public land. See below. |
+| Nearby Count | How many matching units are within the search radius. |
 
 These sensors will not populate with data unless the USPL Refresh Button is pressed.  You may see 'unknown' after Home Assistant starts until the next button press.
 
@@ -103,6 +110,105 @@ The integration will create one button
 | Refresh USPL | Pressing this button will call for the API with Home Assistant's current coordinates. |
 
 The button can be exposed to the UI for manual trigger or via automations previously mentioned.
+
+## Nearby Open Public Land
+
+When the point lookup comes back as `Non-Protected Area`, the same button press runs a
+second query for open public land **around** you. When you are already on public land the
+second query is skipped entirely, and any existing markers are cleared.
+
+There is still only one button and no polling. Your existing automation does not change.
+
+### `sensor.uspl_nearest_open_land`
+
+State is the name of the closest match, or `None within range`.
+
+| Attribute | Description |
+|-----------|-------------|
+| `distance_miles` | Straight-line distance to the closest point of that unit. |
+| `bearing_degrees` / `bearing_compass` | Direction from you, e.g. `293` / `WNW`. |
+| `manager` / `management_type` / `designation` / `public_access` | Same PAD-US fields as the main sensors. |
+| `latitude` / `longitude` | The closest point on that unit, not its centre. |
+| `google_maps_url` / `apple_maps_url` | Turn-by-turn navigation to that point. |
+| `result_count` | Matches found within the radius. |
+| `search_radius_miles` | Radius used for this lookup. |
+| `nearby_status` | `ok`, `stale` (last nearby query failed, values are from before), or `on_public_land`. |
+
+### `sensor.uspl_nearby_count`
+
+Number of matching units within the radius.
+
+### Map markers
+
+Each match becomes a `geo_location` entity, so they show up on a normal map card with no
+dashboard work. They are recreated on every refresh and removed when you are back on
+public land.
+
+```yaml
+type: map
+entities:
+  - zone.home
+geo_location_sources:
+  - public_lands
+auto_fit: true
+hours_to_show: 0
+```
+
+`hours_to_show: 0` keeps the map from drawing location history trails.
+
+A tap-to-navigate card for the nearest match. The entities card cannot template a link,
+so use a markdown card for the navigation link itself:
+
+```yaml
+type: markdown
+content: >-
+  {% set s = 'sensor.uspl_nearest_open_land' %}
+  {% if states(s) not in ['None within range', 'unknown', 'unavailable'] %}
+  ### {{ states(s) }}
+
+  **{{ state_attr(s, 'distance_miles') }} mi {{ state_attr(s, 'bearing_compass') }}**
+  &middot; {{ state_attr(s, 'manager') }}
+
+  {{ state_attr(s, 'designation') }}
+
+  [Navigate]({{ state_attr(s, 'apple_maps_url') }})
+  &middot; [Google]({{ state_attr(s, 'google_maps_url') }})
+  {% else %}
+  No open public land within {{ state_attr(s, 'search_radius_miles') }} mi.
+  {% endif %}
+```
+
+## Options
+
+Settings > Devices & Services > Public Lands > **Configure**. Changes take effect on the
+next button press; no restart needed.
+
+| Option | Default | Notes |
+|--------|---------|-------|
+| Search radius | 25 mi | 5 to 100. Larger radii return more data and take longer. |
+| Land managers | BLM, USFS | Groups: BLM, USFS, NPS, FWS, State, County/Regional, Other Federal. |
+| Open access only | on | Restricts to land marked open to the public (`Pub_Access = OA`). |
+| Maximum map markers | 10 | How many `geo_location` entities to create. |
+
+BLM and Forest Service are the defaults because they are where dispersed camping is
+usually allowed. NPS and state parks will mostly *not* let you disperse camp, so adding
+them is useful for knowing what is around you, not for finding a site.
+
+> **What this can and cannot tell you.** PAD-US knows who manages a piece of land and
+> whether it is open to the public. It does **not** know whether dispersed camping is
+> allowed at a given spot, whether there is a road, or whether that road is passable.
+> Treat a nearby result as "worth looking into," not as permission. The dispersed camping
+> disclaimer above applies to every one of these results.
+
+### Testing from the command line
+
+`scripts/nearby_test.py` runs the same query and the same geometry code the integration
+uses, without needing Home Assistant. Useful for sanity checking before a restart.
+
+```
+python3 scripts/nearby_test.py 36.15 -115.15 25
+python3 scripts/nearby_test.py 31.22 -85.39 100 --managers BLM,USFS,State
+```
 
 ### Dashboard Visability Recommendations
 
@@ -133,8 +239,16 @@ If you want to hide USPL sensors when on private land, hide when 'Unit Name' is 
 - **Frequency** - Please limit your automated refresh period to no less than **10 minutes** while in motion.
 - **GPS Accuracy** - The GPS coordinateds are limited to four decimal points (-118.1222,36.5597).  This limits the accuracy to 15 meters.
 - **Data Accuracy** - The API data is refreshed annually in June by USGS (United States Geological Survey).
+- **Nearby distances** - Distance is straight-line to the nearest point on the unit boundary, not
+  driving distance. The boundary is simplified server-side, so treat the figure as accurate to about
+  a tenth of a mile. There may be no legal road to that point.
+- **Dependencies** - None. The distance maths is plain Python, so there is nothing to compile and
+  nothing to break on a Home Assistant upgrade.
 
 ## Contributions
+
+All credit for the original integration goes to [Anthony Secco](https://github.com/anthonysecco).
+This fork only adds the nearby lookup on top of his work, and keeps the original MIT license.
 
 Thanks to Smarty Van for [Geolocator](https://github.com/SmartyVan/hass-geolocator) which served as a starting point for this integration.
 
