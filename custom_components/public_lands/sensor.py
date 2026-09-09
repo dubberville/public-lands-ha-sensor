@@ -92,7 +92,10 @@ class LastSuccessSensor(SensorEntity):
 
     @property
     def state(self):
-        return self.hass.data.get(DOMAIN, {}).get("last_success", "Never")
+        # device_class=timestamp must be a valid datetime/ISO string or None —
+        # "Never" makes the frontend throw (Intl.RelativeTimeFormat) and freeze the
+        # page, which breaks the iOS companion app. Use None instead.
+        return self.hass.data.get(DOMAIN, {}).get("last_success") or None
 
 
 class PublicLandsStatusBinarySensor(BinarySensorEntity):
