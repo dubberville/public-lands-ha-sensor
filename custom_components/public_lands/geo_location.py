@@ -1,7 +1,14 @@
 """Map markers for nearby open public land.
 
-One entity per nearby result, recreated on every refresh. The entities are
-deliberately created without a unique_id: they are transient, so leaving them
+One entity per nearby result, keyed by unit name.
+
+Refreshes apply a delta rather than removing everything and rebuilding: units
+that are still in range are updated in place, units that dropped out are
+removed, and only genuinely new units create entities. Removing and recreating
+would reuse the same entity_id within one refresh, and the removal lands after
+the new entity has claimed that id, blanking its state.
+
+Entities are created without a unique_id: they are transient, so keeping them
 out of the entity registry means a shrinking result list cannot strand orphaned
 markers on the map.
 """
@@ -29,39 +36,56 @@ async def async_setup_entry(
     """Hold on to the add-entities callback so refreshes can create markers."""
     data = hass.data.setdefault(DOMAIN, {})
     data["geo_add_entities"] = async_add_entities
-    data.setdefault("geo_entities", [])
+    data.setdefault("geo_entities", {})
 
     # A refresh may have already run before this platform finished setting up.
     pending = data.get("nearby") or []
     if pending:
         max_results = (data.get("nearby_options") or {}).get("max_results")
-        await async_sync_geo_locations(hass, pending[:max_results] if max_results else pending)
+        await async_sync_geo_locations(
+            hass, pending[:max_results] if max_results else pending
+        )
 
 
 async def async_sync_geo_locations(hass: HomeAssistant, results=None):
-    """Replace all markers with the given results. No results clears the map."""
+    """Bring markers in line with the given results. No results clears the map."""
     data = hass.data.setdefault(DOMAIN, {})
-    existing = data.get("geo_entities") or []
+    current = data.setdefault("geo_entities", {})
+    wanted = {result["name"]: result for result in (results or [])}
 
-    for entity in existing:
-        if entity.hass is not None:
-            await entity.async_remove(force_remove=True)
-    data["geo_entities"] = []
+    # Units that are no longer in range
+    for name in list(current):
+        if name not in wanted:
+            entity = current.pop(name)
+            if entity.hass is not None:
+                await entity.async_remove(force_remove=True)
 
-    if not results:
-        _LOGGER.debug("Cleared USPL map markers")
-        return
+    # Units still in range keep their entity and just get new numbers
+    added = []
+    for name, result in wanted.items():
+        entity = current.get(name)
+        if entity is None:
+            entity = PublicLandsGeoLocation(result)
+            current[name] = entity
+            added.append(entity)
+        else:
+            entity.update_result(result)
 
-    add_entities = data.get("geo_add_entities")
-    if add_entities is None:
-        # Platform not set up yet; async_setup_entry will pick these up.
-        _LOGGER.debug("geo_location platform not ready, deferring %d marker(s)", len(results))
-        return
+    if added:
+        add_entities = data.get("geo_add_entities")
+        if add_entities is None:
+            # Platform not set up yet; async_setup_entry will pick these up.
+            for entity in added:
+                current.pop(entity.unit_name, None)
+            _LOGGER.debug(
+                "geo_location platform not ready, deferring %d marker(s)", len(added)
+            )
+            return
+        add_entities(added)
 
-    entities = [PublicLandsGeoLocation(result) for result in results]
-    data["geo_entities"] = entities
-    add_entities(entities)
-    _LOGGER.debug("Added %d USPL map marker(s)", len(entities))
+    _LOGGER.debug(
+        "USPL markers: %d total, %d added", len(current), len(added)
+    )
 
 
 class PublicLandsGeoLocation(GeolocationEvent):
@@ -77,9 +101,23 @@ class PublicLandsGeoLocation(GeolocationEvent):
         # class, so set the backing attributes rather than overriding them.
         self._result = result
         self._attr_name = result["name"]
+        self._apply(result)
+
+    @property
+    def unit_name(self) -> str:
+        return self._result["name"]
+
+    def _apply(self, result: dict) -> None:
+        self._result = result
         self._attr_distance = result["distance_miles"]
         self._attr_latitude = result["latitude"]
         self._attr_longitude = result["longitude"]
+
+    def update_result(self, result: dict) -> None:
+        """Refresh this marker's position and distance in place."""
+        self._apply(result)
+        if self.hass is not None:
+            self.async_write_ha_state()
 
     @property
     def extra_state_attributes(self):
