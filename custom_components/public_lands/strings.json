@@ -1,0 +1,29 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Public Lands",
+        "description": "Adds the Public Lands sensors and refresh button."
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Nearby open public land",
+        "description": "Used only when you are not currently on public land.",
+        "data": {
+          "search_radius_miles": "Search radius",
+          "managers": "Land managers to include",
+          "open_access_only": "Open access only",
+          "max_results": "Maximum map markers"
+        },
+        "data_description": {
+          "managers": "PAD-US manager groups. BLM and Forest Service are the usual choices for dispersed camping.",
+          "open_access_only": "Only include land marked open to the public.",
+          "max_results": "How many geo_location markers to create for the map."
+        }
+      }
+    }
+  }
+}

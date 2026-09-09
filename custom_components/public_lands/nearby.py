@@ -32,11 +32,12 @@ TIMEOUT = 20
 def get_options(entry):
     """Read options at query time so changes apply without a restart."""
     opts = dict(entry.options) if entry else {}
+    # NumberSelector hands back floats; max_results is used as a slice index.
     return {
-        CONF_RADIUS: opts.get(CONF_RADIUS, DEFAULT_RADIUS),
+        CONF_RADIUS: float(opts.get(CONF_RADIUS, DEFAULT_RADIUS)),
         CONF_MANAGERS: opts.get(CONF_MANAGERS) or DEFAULT_MANAGERS,
-        CONF_OPEN_ONLY: opts.get(CONF_OPEN_ONLY, DEFAULT_OPEN_ONLY),
-        CONF_MAX_RESULTS: opts.get(CONF_MAX_RESULTS, DEFAULT_MAX_RESULTS),
+        CONF_OPEN_ONLY: bool(opts.get(CONF_OPEN_ONLY, DEFAULT_OPEN_ONLY)),
+        CONF_MAX_RESULTS: int(opts.get(CONF_MAX_RESULTS, DEFAULT_MAX_RESULTS)),
     }
 
 
