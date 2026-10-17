@@ -9,7 +9,9 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN
+from .const import CONF_MAX_RESULTS, DOMAIN, NON_PADUS
+from .geo_location import async_sync_geo_locations
+from .nearby import async_query_nearby, get_options
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -23,14 +25,15 @@ async def async_setup_entry(
     hass.data.setdefault(DOMAIN, {}).setdefault("sensors", [])
 
     # Create and register the refresh button
-    button = RefreshUSPLButton(hass, hass.data[DOMAIN]["sensors"])
+    button = RefreshUSPLButton(hass, entry, hass.data[DOMAIN]["sensors"])
     async_add_entities([button], True)
 
 
 class RefreshUSPLButton(ButtonEntity):
-    def __init__(self, hass: HomeAssistant, sensors: list):
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, sensors: list):
         """Initialize the button with a handle to hass and the sensor list."""
         self.hass = hass
+        self._entry = entry
         self._sensors = sensors
         self._attr_name = "Refresh USPL"
         self._attr_unique_id = "refresh_uspl"
@@ -74,6 +77,8 @@ class RefreshUSPLButton(ButtonEntity):
             _LOGGER.error(f"Failed to fetch public lands data: {e}")
             return
 
+        await self._async_update_nearby(lat, lon)
+
         #  Refresh main USPL sensors
         for sensor in self._sensors:
             sensor.async_schedule_update_ha_state()
@@ -84,3 +89,41 @@ class RefreshUSPLButton(ButtonEntity):
 
         if "status_sensor" in self.hass.data[DOMAIN]:
             self.hass.data[DOMAIN]["status_sensor"].async_schedule_update_ha_state()
+
+        #  And the nearby sensors
+        for sensor in self.hass.data[DOMAIN].get("nearby_sensors", []):
+            sensor.async_schedule_update_ha_state()
+
+    async def _async_update_nearby(self, lat: float, lon: float) -> None:
+        """Look up nearby open public land, but only when not already on it.
+
+        Only ever called after a successful point query, so a failure here is
+        partial: keep API Status on, keep whatever nearby results we already
+        had, and mark them stale.
+        """
+        data = self.hass.data[DOMAIN]
+        features = (data.get("latest_api_data") or {}).get("features") or []
+        unit = features[0].get("attributes", {}).get("Unit_Nm") if features else None
+
+        if unit and unit != NON_PADUS:
+            # On public land -- clear nearby results and remove map markers.
+            _LOGGER.debug("On public land (%s), skipping nearby query", unit)
+            data["nearby"] = []
+            data["nearby_status"] = "on_public_land"
+            await async_sync_geo_locations(self.hass)
+            return
+
+        options = get_options(self._entry)
+        try:
+            results = await async_query_nearby(lat, lon, options)
+        except Exception as err:  # noqa: BLE001 - partial failure, keep prior data
+            data["nearby_status"] = "stale"
+            _LOGGER.warning("Nearby public lands query failed, keeping prior results: %s", err)
+            return
+
+        data["nearby"] = results
+        data["nearby_status"] = "ok"
+        data["nearby_options"] = options
+        _LOGGER.info("USPL nearby refreshed: %d unit(s) within %s mi",
+                     len(results), options["search_radius_miles"])
+        await async_sync_geo_locations(self.hass, results[:options[CONF_MAX_RESULTS]])
