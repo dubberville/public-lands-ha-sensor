@@ -20,14 +20,22 @@
           "city_county": "City, county and state sensors",
           "campgrounds": "Nearby campgrounds sensor (Recreation.gov)",
           "ridb_api_key": "Recreation.gov API key",
-          "search_radius": "Campground search radius"
+          "search_radius": "Campground search radius",
+          "search_radius_miles": "Nearby open land search radius",
+          "managers": "Nearby open land managers",
+          "open_access_only": "Nearby open land: open access only",
+          "max_results": "Nearby open land: maximum map markers"
         },
         "data_description": {
           "location_entity": "A zone, device tracker, person or sensor with latitude and longitude. The default is zone.home.",
           "city_county": "Adds USPL City, USPL County and USPL State from the U.S. Census Bureau. Useful for city overnight-parking rules.",
           "campgrounds": "Adds USPL Nearby Campgrounds from Recreation.gov. Needs your own free API key.",
           "ridb_api_key": "Get a free key by signing up at ridb.recreation.gov. Your key stays on your Home Assistant.",
-          "search_radius": "How far to look for campgrounds, from 10 to 25 miles (25 is Recreation.gov's maximum)."
+          "search_radius": "How far to look for campgrounds, from 10 to 25 miles (25 is Recreation.gov's maximum).",
+          "search_radius_miles": "Used only when you are not on public land: how far to look for open public land (USPL Nearest Open Land, USPL Nearby Count and map markers).",
+          "managers": "PAD-US manager groups to include. BLM and Forest Service are the usual choices for dispersed camping.",
+          "open_access_only": "Only include land marked open to the public.",
+          "max_results": "How many geo_location markers to create for the map."
         }
       }
     },

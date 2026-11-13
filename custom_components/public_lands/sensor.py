@@ -22,6 +22,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
+    CONF_RADIUS,
     DOMAIN,
     FEATURE_CAMPGROUNDS,
     FEATURE_CITY_COUNTY,
@@ -29,6 +30,7 @@ from .const import (
 )
 from .coordinator import STATUS_OK, PublicLandsCoordinator
 from .entity import PublicLandsEntity
+from .nearby import get_options
 
 # (unique id key, name, icon, result field). Unique IDs and names are unchanged
 # from v0.2.x so existing entity IDs (sensor.uspl_unit_name, ...) are kept.
@@ -54,6 +56,9 @@ async def async_setup_entry(
     # API Status is a binary sensor registered on the sensor platform, as in
     # v0.2.x. Moving it would change its entity ID (sensor.uspl_api_status).
     entities.append(PublicLandsStatusBinarySensor(coordinator))
+    # Nearby open public land, filled in when not currently on public land.
+    entities.append(NearestOpenLandSensor(coordinator))
+    entities.append(NearbyCountSensor(coordinator))
 
     # Optional sensors exist only while their feature is switched on. Switching a
     # feature off removes its sensor instead of leaving it unavailable.
@@ -242,3 +247,68 @@ class PublicLandsStatusBinarySensor(PublicLandsEntity, BinarySensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         last = self.coordinator.last_success
         return {"last_success": last.isoformat(timespec="seconds") if last else "Never"}
+
+
+NEAREST_ATTRIBUTES: tuple[str, ...] = (
+    "distance_miles",
+    "bearing_degrees",
+    "bearing_compass",
+    "manager",
+    "management_type",
+    "designation",
+    "public_access",
+    "latitude",
+    "longitude",
+    "google_maps_url",
+    "apple_maps_url",
+)
+
+
+class NearestOpenLandSensor(PublicLandsEntity, SensorEntity):
+    """Closest open public land unit when not already on public land."""
+
+    _attr_name = "USPL Nearest Open Land"
+    _attr_unique_id = "uspl_nearest_open_land"
+    _attr_icon = "mdi:tree"
+
+    def __init__(self, coordinator: PublicLandsCoordinator) -> None:
+        super().__init__(coordinator, SENSOR_DOMAIN)
+
+    def _results(self) -> list[dict[str, Any]]:
+        return (self.coordinator.data or {}).get("nearby") or []
+
+    @property
+    def native_value(self) -> str | None:
+        if not self.coordinator.data:
+            return None
+        results = self._results()
+        return results[0]["name"] if results else "None within range"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        results = self._results()
+        attrs: dict[str, Any] = {
+            "result_count": len(results),
+            "search_radius_miles": get_options(self.coordinator.entry)[CONF_RADIUS],
+            "nearby_status": (self.coordinator.data or {}).get("nearby_status", "unknown"),
+        }
+        if results:
+            attrs.update({key: results[0].get(key) for key in NEAREST_ATTRIBUTES})
+        return attrs
+
+
+class NearbyCountSensor(PublicLandsEntity, SensorEntity):
+    """How many matching units are within the search radius."""
+
+    _attr_name = "USPL Nearby Count"
+    _attr_unique_id = "uspl_nearby_count"
+    _attr_icon = "mdi:map-search"
+
+    def __init__(self, coordinator: PublicLandsCoordinator) -> None:
+        super().__init__(coordinator, SENSOR_DOMAIN)
+
+    @property
+    def native_value(self) -> int | None:
+        if not self.coordinator.data:
+            return None
+        return len(self.coordinator.data.get("nearby") or [])

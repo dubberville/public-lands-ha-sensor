@@ -33,6 +33,13 @@ from .const import (
     STORAGE_VERSION,
 )
 from .extras import async_campgrounds, async_city_county, async_rules_link
+from .const import (
+    CONF_RADIUS,
+    NEARBY_STATUS_OK,
+    NEARBY_STATUS_ON_PUBLIC_LAND,
+    NEARBY_STATUS_STALE,
+)
+from .nearby import async_query_nearby, get_options, needs_nearby
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -154,10 +161,41 @@ class PublicLandsCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
             raise UpdateFailed(f"Failed to fetch public lands data: {err}") from err
 
         result["location_entity"] = self.location_entity
+        result["nearby"], result["nearby_status"] = await self._async_nearby(result)
         self.status = STATUS_OK
         self.last_success = dt_util.now()
         await self._async_save(result)
         return result
+
+    async def _async_nearby(
+        self, result: dict[str, Any]
+    ) -> tuple[list[dict[str, Any]], str]:
+        """Nearby open public land, only when not already on public land.
+
+        A failure here never fails the refresh: the previous nearby results are
+        kept and marked stale.
+        """
+        if not needs_nearby(result):
+            return [], NEARBY_STATUS_ON_PUBLIC_LAND
+        options = get_options(self.entry)
+        try:
+            nearby = await async_query_nearby(
+                async_get_clientsession(self.hass),
+                result["latitude"],
+                result["longitude"],
+                options,
+            )
+        except PublicLandsError as err:
+            _LOGGER.warning(
+                "Nearby public lands query failed, keeping prior results: %s", err
+            )
+            return (self.data or {}).get("nearby") or [], NEARBY_STATUS_STALE
+        _LOGGER.info(
+            "USPL nearby refreshed: %d unit(s) within %s mi",
+            len(nearby),
+            options[CONF_RADIUS],
+        )
+        return nearby, NEARBY_STATUS_OK
 
     async def _async_save(self, result: dict[str, Any] | None) -> None:
         await self._store.async_save(

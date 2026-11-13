@@ -22,6 +22,9 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
@@ -30,6 +33,17 @@ from homeassistant.helpers.selector import (
 from .api import InvalidApiKey, PublicLandsError
 from .const import (
     CONF_CAMPGROUNDS,
+    CONF_MANAGERS,
+    CONF_MAX_RESULTS,
+    CONF_OPEN_ONLY,
+    CONF_RADIUS,
+    DEFAULT_MANAGERS,
+    DEFAULT_MAX_RESULTS,
+    DEFAULT_OPEN_ONLY,
+    DEFAULT_RADIUS,
+    MANAGER_GROUPS,
+    MAX_RADIUS,
+    MIN_RADIUS,
     CONF_CITY_COUNTY,
     CONF_LOCATION_ENTITY,
     CONF_RIDB_API_KEY,
@@ -124,7 +138,18 @@ def _schema(current: dict[str, Any]) -> vol.Schema:
                 CONF_CITY_COUNTY, default=bool(current.get(CONF_CITY_COUNTY))
             ): BooleanSelector(),
             vol.Required(
-                CONF_CAMPGROUNDS, default=bool(current.get(CONF_CAMPGROUNDS))
+                CONF_CAMPGROUNDS,
+    CONF_MANAGERS,
+    CONF_MAX_RESULTS,
+    CONF_OPEN_ONLY,
+    CONF_RADIUS,
+    DEFAULT_MANAGERS,
+    DEFAULT_MAX_RESULTS,
+    DEFAULT_OPEN_ONLY,
+    DEFAULT_RADIUS,
+    MANAGER_GROUPS,
+    MAX_RADIUS,
+    MIN_RADIUS, default=bool(current.get(CONF_CAMPGROUNDS))
             ): BooleanSelector(),
             vol.Optional(
                 CONF_RIDB_API_KEY,
@@ -141,6 +166,36 @@ def _schema(current: dict[str, Any]) -> vol.Schema:
                     unit_of_measurement="mi",
                     mode=NumberSelectorMode.SLIDER,
                 )
+            ),
+            # Nearby open public land (used only when not on public land).
+            vol.Required(
+                CONF_RADIUS, default=current.get(CONF_RADIUS, DEFAULT_RADIUS)
+            ): NumberSelector(
+                NumberSelectorConfig(
+                    min=MIN_RADIUS,
+                    max=MAX_RADIUS,
+                    step=5,
+                    unit_of_measurement="mi",
+                    mode=NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Required(
+                CONF_MANAGERS, default=current.get(CONF_MANAGERS, DEFAULT_MANAGERS)
+            ): SelectSelector(
+                SelectSelectorConfig(
+                    options=list(MANAGER_GROUPS),
+                    multiple=True,
+                    mode=SelectSelectorMode.LIST,
+                )
+            ),
+            vol.Required(
+                CONF_OPEN_ONLY, default=current.get(CONF_OPEN_ONLY, DEFAULT_OPEN_ONLY)
+            ): BooleanSelector(),
+            vol.Required(
+                CONF_MAX_RESULTS,
+                default=current.get(CONF_MAX_RESULTS, DEFAULT_MAX_RESULTS),
+            ): NumberSelector(
+                NumberSelectorConfig(min=1, max=50, step=1, mode=NumberSelectorMode.BOX)
             ),
         }
     )
